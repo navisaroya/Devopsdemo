@@ -1,0 +1,98 @@
+
+//DECLARE @CountrystatsFile string =  "/Raw/Dimensions/LicenseMaster/LicenseMaster{*}.tsv";
+DECLARE @CountrystatsFile   string =  "/Demo/Sampledata/5-country_stats.csv";
+DECLARE @atheleteFile       string =  "/Demo/Sampledata/2-athlete_events.csv";
+DECLARE @NOCFile            string =  "/Demo/Sampledata/2-noc_regions.csv";
+DECLARE @flightdetailsFile  string =  "/Demo/Sampledata/1-aeroplanes-passengers-and-air-cargo-movement-bahrain.csv";
+
+//country_name,country_code,country_code3,continent,region,population,population_below_poverty_line,hdi,life_expectancy,expected_years_of_schooling,mean_years_of_schooling,gni,kiva_country_name
+@ctrinputfile = 
+    EXTRACT 
+        country_name    string,
+        country_code    string,
+        country_code3   string,
+        continent       string,
+        region          string,
+        population      long,
+        population_below_poverty_line   double,
+        hdi             double,
+        life_expectancy double,
+        expected_years_of_schooling double,
+        mean_years_of_schooling     double,
+        gni             double,
+        kiva_country_name   string
+    FROM @CountrystatsFile
+    USING Extractors.Csv(quoting : false, nullEscape : null,skipFirstNRows : 1);
+
+@flightsinputfile =
+    EXTRACT Year int,
+            Category string,
+            Value double
+    FROM @flightdetailsFile
+    USING Extractors.Text(delimiter : ';', nullEscape : null, skipFirstNRows : 1);
+
+@olympicmedaldetails =
+    EXTRACT Id          int,
+            Name        string,
+            Sex         char,
+            Age         int,
+            Height      string,
+            Weight      string,
+            Team        string,
+            Noc         string,
+            Games       string,
+            year        int,
+            Season      string,
+            City        string,
+            Sport       string,
+            Event       string,
+            Medal       string
+    FROM @atheleteFile
+    USING Extractors.Csv(quoting : false, nullEscape : null, skipFirstNRows : 1);
+
+@olympicNOC =
+    EXTRACT Noc         string,
+            region      string,
+            notes       string
+    FROM @NOCFile
+    USING Extractors.Csv(quoting : false, nullEscape : null, skipFirstNRows : 1);
+
+
+@personspermedal =
+    SELECT c.country_name,m.Medal,(AVG(population)/COUNT(m.Medal)) AS PersonsperMedal FROM
+    @olympicmedaldetails AS m
+    INNER JOIN @olympicNOC AS n
+        ON m.Noc == n.Noc
+    INNER JOIN @ctrinputfile AS c
+        ON n.region == c.country_name
+    WHERE
+    m.Medal != "NA"
+    GROUP BY c.country_name,m.Medal;
+
+@flight =
+    SELECT Year,
+           Category,
+           SUM(Value) AS Aggr_VALUE
+    FROM @flightsinputfile
+    GROUP BY Year,Category;
+
+@Extraoutput =
+    SELECT USQLDemo.Helper.IsNull(n.region,"N/A") AS region,m.Medal,COUNT(m.Medal) AS Medalcount FROM
+    @olympicmedaldetails AS m
+    INNER JOIN @olympicNOC AS n
+        ON m.Noc == n.Noc
+    WHERE
+    m.Medal != "NA"
+    GROUP BY n.region,m.Medal;
+
+OUTPUT @personspermedal
+TO "/Demo/Dest/Medal.tsv"
+USING Outputters.Tsv(outputHeader : true, quoting : false);
+
+OUTPUT @Extraoutput
+TO "/Demo/Dest/Extraoutput.tsv"
+USING Outputters.Tsv(outputHeader : true, quoting : false);
+
+OUTPUT @flight
+TO "/Demo/Dest/Flight.tsv"
+USING Outputters.Tsv(outputHeader : true, quoting : false);
